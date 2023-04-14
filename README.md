@@ -20,3 +20,5 @@ Logical Operators, Relational Operators
 27/03/2023 inserted Ballisle's suggestion on ASC() as a statement.
 
 29/03/2023 Inserted notes on implementations related to the management of Arrays written by Charles Pegge from version P14.
+
+10/04/2023 Enter the words OOP, PURE, OBJECTS.
