@@ -17,3 +17,4 @@ Logical Operators, Relational Operators.
 29/03/2023 Inserted notes on implementations related to the management of Arrays written by Charles Pegge from version P14.  
 10/04/2023 Enter the words OOP, PURE, OBJECTS.  
 17/04/2023 Format function added in console and in file. Removed EndSel no longer implemented.
+26/04/2023 Inserted some words that are not present and partially reformatted according to the latest version published by Pegge.  
