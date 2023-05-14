@@ -18,4 +18,5 @@ Logical Operators, Relational Operators.
 10/04/2023 Enter the words OOP, PURE, OBJECTS.  
 17/04/2023 Format function added in console and in file. Removed EndSel no longer implemented.   
 26/04/2023 Inserted some words that are not present and partially reformatted according to the latest version published by Pegge.    
-30/04/2023 Added further changes related to version P15.  Enter the functions related to MODULE.
+30/04/2023 Added further changes related to version P15.  Enter the functions related to MODULE.   
+14/05/2023 added NOSIG in function modules.
