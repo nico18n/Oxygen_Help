@@ -6,7 +6,6 @@ if you like, you can use this help file which could replace the original file in
 Also, if you have any suggestions that can help improve it, they are welcome.
 Friendliness. :)
 
-
 25/01/2022: CONSOLE section inserted.  
 02/02/2022: added Charles' clarifications on "&" elaboration.  
 18/02/2022 Insert new tables:
