@@ -20,4 +20,6 @@ Logical Operators, Relational Operators.
 30/04/2023 Added further changes related to version P15.  Enter the functions related to MODULE.   
 14/05/2023 added NOSIG in function modules.
 28/10/2023 added functions related to SysUtil.inc
- 
+02/12/2023 Improved the appearance and added some words that weren't there. Added some .inc
+
+
