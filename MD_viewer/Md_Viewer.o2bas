@@ -5,13 +5,17 @@ $ filename "md_viewer.exe"
 uses WinUtil
 uses FileDialogs
 uses ParseUtil
+uses sysutil
+
 
 ' --- CARICAMENTO LIBRERIE ---
 sys hRichLib = LoadLibrary("msftedit.dll")
 if hRichLib = 0 then hRichLib = LoadLibrary("riched20.dll")
 
+% IDI_APPICON=1000
 % ID_RICHEDIT = 101
 % ID_MENU_OPEN = 201
+% ID_MENU_ABOUT = 202 ' ID per il menu Help
 sys hRichEdit, hFont
 
 type SETTEXTEX
@@ -24,49 +28,29 @@ end type
 
 ' Versione manuale di Trim per evitare errori
 function trim(string s) as string
+=================================
     return ltrim(rtrim(s))
 end function
 
-function UTF8ToAnsi(string s) as string
-    sys L = len(s)
-    if L = 0 then return ""
-    
-    ' 1. Calcoliamo quanti caratteri Wide servono
-    sys wLen = MultiByteToWideChar(65001, 0, strptr(s), L, 0, 0)
-    
-    ' Allocazione buffer Wide (2 byte per carattere)
-    string ws = space(wLen * 2) 
-    MultiByteToWideChar(65001, 0, strptr(s), L, strptr(ws), wLen)
-    
-    ' 2. Calcoliamo quanto spazio ANSI serve
-    sys aLen = WideCharToMultiByte(0, 0, strptr(ws), wLen, 0, 0, 0, 0)
-    string res = space(aLen)
-    WideCharToMultiByte(0, 0, strptr(ws), wLen, strptr(res), aLen, 0, 0)
-    
-    return res
+
+function controllaTipoFile(string s) as bool
+============================================
+	string f = lcase(ExtractDotName(s))
+   if instr(".md.txt",f) then return true
+	return false
+	
 end function
 
-
-function ApplyBullets(string s) as string
-    string t = ltrim(s)
-    if left(t, 2) = "* " then
-        ' \li400 = Rientro sinistro, \fi-200 = Prima riga sporgente (per il punto)
-        return "\pard\li400\fi-200\bullet\tab " + mid(t, 3)
-    end if
-    ' Se non è una lista, resetta il paragrafo per evitare che il rientro continui
-    return "\pard " + s 
-end function
+' --- FUNZIONI DI FORMATTAZIONE (Copie locali per sicurezza) ---
 
 function ApplyBackticks(string xs) as string
-    sys p1, p2
-    p1 = 1
     string s = xs
+    sys p1 = 1, p2
     do
         p1 = instr(p1, s, "`")
         if p1 = 0 then exit do
         p2 = instr(p1 + 1, s, "`")
         if p2 > p1 then
-            ' \f1 = Courier, \cf4 = Verde
             string content = mid(s, p1 + 1, p2 - p1 - 1)
             string rep = "{\f1\cf4 " + content + "}"
             s = left(s, p1 - 1) + rep + mid(s, p2 + 1)
@@ -76,21 +60,37 @@ function ApplyBackticks(string xs) as string
     return s
 end function
 
-function ApplyItalic(string xs) as string
-    sys p1, p2
-    ' Gestione Asterischi (solo se singoli)
-    p1 = 1
+function ApplyBold(string xs) as string
     string s = xs
+    sys p1, p2
+    do
+        p1 = instr(s, "**")
+        if p1 = 0 then exit do
+        p2 = instr(p1 + 2, s, "**")
+        if p2 > p1 then
+            ' Aggiunto spazio dopo \b0 per evitare che RTF mangi lo spazio reale [cite: 10]
+            s = left(s, p1 - 1) + "\b " + mid(s, p1 + 2, p2 - p1 - 2) + "\b0 " + mid(s, p2 + 2)
+        else : exit do : end if
+    loop
+    return s
+end function
+
+function ApplyItalic(string xs) as string
+    string s = xs
+    sys p1, p2
+    ' Asterischi
+    p1 = 1
     do
         p1 = instr(p1, s, "*")
         if p1 = 0 then exit do
         p2 = instr(p1 + 1, s, "*")
         if p2 > p1 then
+            ' Aggiunto spazio dopo \i0 [cite: 7]
             s = left(s, p1 - 1) + "\i " + mid(s, p1 + 1, p2 - p1 - 1) + "\i0 " + mid(s, p2 + 1)
-            p1 = p2 + 4 ' Salta i tag RTF inseriti
+            p1 = p2 + 5
         else : exit do : end if
     loop
-    ' Gestione Underscore
+    ' Underscore
     p1 = 1
     do
         p1 = instr(p1, s, "_")
@@ -98,75 +98,54 @@ function ApplyItalic(string xs) as string
         p2 = instr(p1 + 1, s, "_")
         if p2 > p1 then
             s = left(s, p1 - 1) + "\i " + mid(s, p1 + 1, p2 - p1 - 1) + "\i0 " + mid(s, p2 + 1)
-            p1 = p2 + 4
+            p1 = p2 + 5
         else : exit do : end if
     loop
     return s
 end function
 
-function ApplyBold(string xs) as string
-    sys p1, p2
+function ApplyBullets(string xs) as string
     string s = xs
-    do
-        p1 = instr(s, "**")
-        if p1 = 0 then exit do
-        p2 = instr(p1 + 2, s, "**")
-        if p2 > p1 then
-            ' Sostituisce **...** con \b ... \b0
-            s = left(s, p1 - 1) + "\b " + mid(s, p1 + 2, p2 - p1 - 2) + "\b0 " + mid(s, p2 + 2)
-        else : exit do : end if
-    loop
+    string t = ltrim(s)
+    if left(t, 2) = "* " then
+        return "\pard\li400\fi-200\bullet\tab " + mid(t, 3)
+    end if
+    return "\pard " + s 
+end function
+
+function ProcessInlineFormatting(string xs) as string
+    string s = xs
+    s = ApplyBackticks(s)
+    s = ApplyBold(s)
+    s = ApplyItalic(s)
     return s
 end function
 
-' --- lavoriamo la formattazione della linea ---
-function ProcessInlineFormatting(string txt) as string
-    string s = txt
-    
-    s = ApplyBackticks(s)   ' Protegge i termini tecnici
-    s = ApplyBold(s)        ' Gestisce i doppi asterischi
-    s = ApplyItalic(s)      ' Gestisce gli asterischi singoli rimasti
-    
-    return s
-end function
-
-
-'--- processa solo le tabelle ---
+'--- Processa tabelle ---
 function ProcessTable(string rawLine, sys currentFileLine, bool forceReset = false) as string
     static sys lastFileLine, tableRowIndex 
     if forceReset then : lastFileLine = 0 : tableRowIndex = 0 : return "" : end if
-
     string s = trim(rawLine)
     if instr(s, "---") > 0 then : lastFileLine = currentFileLine : return "" : end if
-
     if currentFileLine <> (lastFileLine + 1) then : tableRowIndex = 1 : else : tableRowIndex += 1 : end if
     lastFileLine = currentFileLine
-
-    ' Definizione RTF
     string rtfRow = "\trowd\trgaph108\trleft-108"
     rtfRow += "\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx2500"
     rtfRow += "\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx9500"
     rtfRow += "\pard\intbl\ql "
-
     if left(s, 1) = "|" then s = mid(s, 2)
     if right(s, 1) = "|" then s = left(s, len(s) - 1)
-
     string finalRow = ""
     sys p = instr(s, "|")
     if p > 0 then
         string parte1 = trim(left(s, p - 1))
         string parte2 = trim(mid(s, p + 1))
-        
-        ' Pulizia link [dim](#dim)
         if left(parte1, 1) = "[" then
             sys pC = instr(parte1, "]")
             if pC > 1 then parte1 = mid(parte1, 2, pC - 2)
         end if
-        
-        ' Formattazione Inline (permette grassetto/corsivo dentro la tabella)
         parte1 = ProcessInlineFormatting(parte1)
         parte2 = ProcessInlineFormatting(parte2)
-
         if tableRowIndex = 1 then
             finalRow = "\b " + parte1 + "\b0\cell \b " + parte2 + "\b0\cell "
         else
@@ -175,18 +154,15 @@ function ProcessTable(string rawLine, sys currentFileLine, bool forceReset = fal
     else
         finalRow = ProcessInlineFormatting(s) + "\cell\cell "
     end if
-    
     return rtfRow + finalRow + "\row\pard "
 end function
 
-
-
-' --- Funzione Parser Markdown ---
-function MD_to_RTF(string md) as string
-    ' Header RTF e Tabella Colori
-    ' cf1:Blu, cf2:Rosso, cf3:Grigio, cf4:Verde, cf5:Bordeaux
+' --- Parser Markdown ---
+function MD_to_RTF(string xs) as string
+    string md = xs
+    ' Aggiunto Colore 6 (Grigio Chiaro 240,240,240) per lo sfondo codice 
     string rtf = "{\rtf1\ansi\deff0{\fonttbl{\f0 Segoe UI;}{\f1 Courier New;}}"
-    rtf += "{\colortbl;\red0\green0\blue255;\red255\green0\blue0;\red100\green100\blue100;\red0\green128\blue0;\red128\green0\blue64;}\f0\fs24 "
+    rtf += "{\colortbl;\red0\green0\blue255;\red255\green0\blue0;\red100\green100\blue100;\red0\green128\blue0;\red128\green0\blue64;\red240\green240\blue240;}\f0\fs24 "
     
     string ToC = "\b\fs28 INDICE\b0\fs24\line\line "
     string contentRTF = ""
@@ -194,7 +170,6 @@ function MD_to_RTF(string md) as string
     sys pos = 1, nextPos = 0, rigaFile = 0
     bool inCodeBlock = false
 
-    ' Reset stato tabelle per nuovo file
     ProcessTable("", 0, true)
 
     do
@@ -207,17 +182,18 @@ function MD_to_RTF(string md) as string
             curLine = mid(md, pos) : pos = 0 
         end if
         
-        ' Pulizia e protezione caratteri speciali RTF
         if instr(curLine, chr(13)) > 0 then replace(curLine, chr(13), "")
         replace(curLine, "\", "\\") : replace(curLine, "{", "\{") : replace(curLine, "}", "\}")
 
-        ' A. BLOCCHI DI CODICE (```)
+        ' --- BLOCCHI DI CODICE CON SFONDO GRIGIO ---
         if left(ltrim(curLine), 3) = "```" then
             inCodeBlock = not inCodeBlock
             if inCodeBlock then 
-                contentRTF += "\line{\f1\fs18\cf3 " 
+                ' \highlight6 attiva lo sfondo grigio chiaro
+                contentRTF += "\line{\f1\fs18\cf3\highlight0 " 
             else 
-                contentRTF += "}\f0\fs24\cf0\line "
+                ' \highlight0 disattiva lo sfondo
+                contentRTF += "\highlight0}\f0\fs24\cf0\line "
             end if
             continue do
         end if
@@ -226,13 +202,11 @@ function MD_to_RTF(string md) as string
             continue do
         end if
 
-        ' B. TABELLE
         if instr(curLine, "|") > 0 then
             contentRTF += ProcessTable(curLine, rigaFile)
             continue do
         end if
 
-        ' C. TITOLI (#, ##, ###, ####)
         string tL = ltrim(curLine)
         if left(tL, 2) = "# " then
             ToC += "\cf1\b\fs32 # " + mid(tL, 3) + "\b0\fs24\cf0\line "
@@ -241,18 +215,13 @@ function MD_to_RTF(string md) as string
             ToC += "\cf1\b\fs28   ## " + mid(tL, 4) + "\b0\fs24\cf0\line "
             curLine = "\b\cf1\fs28 " + curLine + "\fs24\cf0\b0"
         elseif left(tL, 4) = "### " then
-            curLine = "\b\cf4 " + curLine + "\cf0\b0" ' Verde
+            curLine = "\b\cf4 " + curLine + "\cf0\b0" 
         elseif left(tL, 5) = "#### " then
-            curLine = "\b\cf2 " + curLine + "\cf0\b0" ' Rosso
+            curLine = "\b\cf2 " + curLine + "\cf0\b0" 
         end if
 
-        ' D. LISTE PUNTATE
         curLine = ApplyBullets(curLine)
-
-        ' E. FORMATTAZIONE INLINE (Bold, Italic, Backticks)
         curLine = ProcessInlineFormatting(curLine)
-
-        ' Aggiunta riga al contenuto finale
         contentRTF += curLine + "\line "
         
         if pos = 0 then exit do
@@ -261,19 +230,16 @@ function MD_to_RTF(string md) as string
     return rtf + ToC + "\line\emdash\line\line " + contentRTF + "}"
 end function
 
-' --- Procedura Caricamento ---
+' --- Caricamento File ---
 sub LoadMD(sys hEdit, string f)
     if f = "" then exit sub
-    
+
     ' --- 1. SVUOTIAMO LA GUI ---
     SendMessage(hEdit, WM_SETTEXT, 0, strptr(""))
-    
-    string raw = getfile(f)
+
+    string path = replace(f, chr(34), "") ' Pulisce eventuali virgolette
+    string raw = getfile(path)
     if len(raw) = 0 then exit sub
-    
-    ' --- 2. CORREZIONE CARATTERI (UTF-8 a ANSI) ---
-    ' Applichiamo la conversione prima di passarlo al parser
-    'raw = UTF8ToAnsi(raw)
     
     static string sRTF
     sRTF = MD_to_RTF(raw)
@@ -281,54 +247,58 @@ sub LoadMD(sys hEdit, string f)
     dim st as SETTEXTEX
     st.flags = ST_RTF
     st.codepage = 0 
-    
     SendMessage(hEdit, EM_SETTEXTEX, @st, strptr(sRTF))
-    SetWindowText(GetParent(hEdit), "O2 Viewer - " + f)
+    
+    ' Aggiorna titolo finestra 
+    SetWindowText(GetParent(hEdit), "O2 Viewer - " + path)
 end sub
-
-static string sRTF
 
 ' --- WndProc ---
 function WndProc(sys hwnd, uMsg, wParam, lParam) as long callback
     select umsg 
         case WM_CREATE
-            ' Menu
+            ' Menu con aggiunta del tasto "?" [cite: 28]
             sys hMenu = CreateMenu()
-            sys hSub = CreatePopupMenu()
-            AppendMenu(hSub, MF_STRING, ID_MENU_OPEN, "&Apri...")
-            AppendMenu(hMenu, MF_POPUP, hSub, "&File")
+            sys hSubFile = CreatePopupMenu()
+            sys hSubHelp = CreatePopupMenu()
+            AppendMenu(hSubFile, MF_STRING, ID_MENU_OPEN, "&Apri...")
+            AppendMenu(hMenu, MF_POPUP, hSubFile, "&File")
+            AppendMenu(hSubHelp, MF_STRING, ID_MENU_ABOUT, "&Info")
+            AppendMenu(hMenu, MF_POPUP, hSubHelp, "&?")
             SetMenu(hwnd, hMenu)
 
-            ' Creazione RichEdit
             hRichEdit = CreateWindowEx(WS_EX_CLIENTEDGE, "RichEdit50W", "", _
                         WS_CHILD | WS_VISIBLE | ES_MULTILINE | WS_VSCROLL | 0x0800, _
                         0, 0, 0, 0, hwnd, ID_RICHEDIT, hinst, null)
+            DragAcceptFiles(hwnd, TRUE)
             
             hFont = CreateFont(20, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0, "Segoe UI")
             SendMessage(hRichEdit, WM_SETFONT, hFont, 1)
 
-			  if hRichEdit <> 0 then
-                string testo = "# Ciao Charles" + chr(10) + "O2 is GREAT"
-                static string sRTF
-                sRTF = MD_to_RTF(testo)
-                
-                 'usa EM_SETTEXTEX:
-                 dim st as SETTEXTEX
-                 st.flags = ST_RTF
-                 st.codepage = 0
-                 SendMessage(hRichEdit, EM_SETTEXTEX, @st, strptr(sRTF))
-                
-                SetWindowText(hwnd, "O2 Viewer - Pronto")
-            end if
+            ' GESTIONE RIGA DI COMANDO (Per apertura file predefinita)
+
+				'CommandLine
+             string percorsoFile = UnQuote CommandLineArgs
+	          if controllaTipoFile(percorsoFile) then
+				    LoadMD(hRichEdit, percorsoFile)
+				    
+				    ' Imposta il titolo della finestra usando il nome file (senza path completo)
+				    SetWindowText(hwnd, "O2 Viewer - " + percorsoFile) 
+				else
+				    ' Nessun file passato, mostra il titolo standard
+				    SetWindowText(hwnd, "O2 Viewer - Pronto")
+				end if
 
         case WM_COMMAND
-            if loword(wParam) = ID_MENU_OPEN then
-                ' Filtro corretto per FileDialogs.inc [cite: 9]
-                string filt = "Markdown" + chr(0) + "*.md" + chr(0) + "All" + chr(0) + "*.*" + chr(0)
-                string f = GetFileName("", 0, filt)
-					'mbox f
-                if f <> "" then LoadMD(hRichEdit, f)
-            end if
+            select case loword(wParam)
+                case ID_MENU_OPEN
+                    string filt = "Markdown" + chr(0) + "*.md" + chr(0) + "All" + chr(0) + "*.*" + chr(0)
+                    string f = GetFileName("", 0, filt)
+                    if f <> "" then LoadMD(hRichEdit, f)
+                
+                case ID_MENU_ABOUT
+                    mbox "O2 Markdown Viewer - by N.Piano" + chr(10) + "Sviluppato con OxygenBasic" + chr(10) + "Versione 1.0"
+            end select
 
         case WM_SIZE
             if hRichEdit then
@@ -339,6 +309,31 @@ function WndProc(sys hwnd, uMsg, wParam, lParam) as long callback
         case WM_DESTROY
             if hRichLib then FreeLibrary(hRichLib)
             PostQuitMessage 0 
+
+        case WM_DROPFILES
+				sys hDrop = wParam
+				char buffer[260]
+				
+				' Ottiene il numero di file trascinati (usiamo 0 per il primo file) [cite: 24]
+				uint numFiles = DragQueryFile(hDrop, 0xFFFFFFFF, null, 0)
+				
+				if numFiles > 0 then
+				    ' Recupera il percorso del primo file trascinato
+				    DragQueryFile(hDrop, 0, buffer, 260)
+				    string fileTrascinato = buffer
+				    
+				    ' Carica il file se ha estensione .md
+				    if controllaTipoFile(fileTrascinato) then
+                   LoadMD(hRichEdit, fileTrascinato)
+                 else
+                   mbox "I can only open .md and .txt files."
+                 end if
+				    
+				end if
+				
+				' Libera la memoria allocata dal sistema per l'operazione di drop [cite: 32]
+				DragFinish(hDrop)
+				return 0
 
         case else
             return DefWindowProc(hwnd, uMsg, wParam, lParam)
