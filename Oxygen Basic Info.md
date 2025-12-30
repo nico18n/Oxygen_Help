@@ -9,7 +9,7 @@ The built in function set is small. but contains the necessary tools to build cl
 In addition to understanding Basic in the QBasic genre, Oxygen can read sufficient C syntax to deal with most C headers directly, eliminating the need to translate them into Basic. 
 
 
- Copyright © Charles Pegge, 2010
+ Copyright © Charles Pegge, 2010 - 2025
  
 https://forum.it-berater.org/index.php/board,154.0.html  
 http://www.oxygenbasic.org https://github.com/Charles-Pegge/OxygenBasic
