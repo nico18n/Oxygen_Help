@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxygenBasic Tree Viewer</title>
+    <script src="data.js"></script>
+    <style>
+        :root { --primary: #0078d4; --bg: #ffffff; --folder-bg: #f0f4f8; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        header { background: var(--primary); color: white; padding: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .toolbar { display: flex; gap: 10px; margin-top: 10px; }
+        input#searchBar { flex: 1; padding: 10px; border-radius: 4px; border: none; font-size: 16px; }
+        button { cursor: pointer; padding: 5px 10px; border: none; border-radius: 4px; background: #005a9e; color: white; }
+
+        main { display: flex; flex: 1; overflow: hidden; }
+        #sidebar { width: 320px; border-right: 1px solid #ddd; overflow-y: auto; background: #fafafa; }
+        #content { flex: 1; padding: 25px; overflow-y: auto; background: var(--bg); }
+
+        /* Stili Albero */
+        .group-container { border-bottom: 1px solid #e0e0e0; }
+        .group-header { 
+            background: var(--folder-bg); padding: 12px; font-weight: bold; cursor: pointer; 
+            display: flex; justify-content: space-between; align-items: center;
+            user-select: none; border-left: 4px solid var(--primary);
+        }
+        .group-header:hover { background: #e2e8f0; }
+        .group-content { display: none; background: white; }
+        .group-content.show { display: block; }
+
+        .node { 
+            padding: 10px 10px 10px 30px; border-bottom: 1px solid #f0f0f0; 
+            cursor: pointer; font-size: 14px; transition: 0.2s; 
+        }
+        .node:hover { background: #f0f7ff; color: var(--primary); }
+        .node.active { background: #e0efff; border-right: 4px solid var(--primary); font-weight: bold; }
+
+        /* Contenuto */
+        h1 { color: var(--primary); border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        pre { background: #2d2d2d; color: #e0e0e0; padding: 15px; border-radius: 8px; overflow-x: auto; line-height: 1.5; border-left: 5px solid #888; }
+        .related-box { background: #eef6ff; padding: 15px; border-radius: 8px; margin-top: 25px; border: 1px solid #cce0ff; }
+        .link { color: var(--primary); text-decoration: underline; cursor: pointer; margin-right: 12px; display: inline-block; }
+        
+        @media (max-width: 600px) {
+            #sidebar { width: 100%; position: absolute; z-index: 100; transform: translateX(0); transition: 0.3s; }
+            #sidebar.hidden { transform: translateX(-100%); }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <input type="text" id="searchBar" placeholder="Cerca comando o gruppo..." onkeyup="filterNodes()">
+    <div class="toolbar">
+        <button onclick="expandAll(true)">Espandi tutto</button>
+        <button onclick="expandAll(false)">Comprimi tutto</button>
+    </div>
+</header>
+
+<main>
+    <div id="sidebar">
+        <div id="tree"></div>
+    </div>
+    <div id="content">
+        <div id="displayArea">
+            <h1>Manuale OxygenBasic</h1>
+            <p>Seleziona un comando dall'albero a sinistra per visualizzare i dettagli e i collegamenti correlati.</p>
+        </div>
+    </div>
+</main>
+
+<script>
+    // Funzione per inizializzare l'albero
+    function initApp() {
+        if (typeof database === 'undefined') {
+            document.getElementById('displayArea').innerHTML = "<h1>Errore</h1><p>File data.js non caricato correttamente.</p>";
+            return;
+        }
+        renderTree(database);
+    }
+
+    function renderTree(data) {
+        const treeDiv = document.getElementById('tree');
+        treeDiv.innerHTML = '';
+
+        // Raggruppamento logico
+        const groups = {};
+        data.forEach(item => {
+            let g = (item.group && item.group.trim() !== "") ? item.group.trim() : "Senza Categoria";
+            if (!groups[g]) groups[g] = [];
+            groups[g].push(item);
+        });
+
+        // Creazione HTML dell'albero
+        Object.keys(groups).sort().forEach(gName => {
+            const container = document.createElement('div');
+            container.className = 'group-container';
+
+            const header = document.createElement('div');
+            header.className = 'group-header';
+            header.innerHTML = `<span>?? ${gName}</span> <span class="sign">+</span>`;
+            header.onclick = () => {
+                const content = header.nextSibling;
+                content.classList.toggle('show');
+                header.querySelector('.sign').innerText = content.classList.contains('show') ? '-' : '+';
+            };
+
+            const content = document.createElement('div');
+            content.className = 'group-content';
+
+            groups[gName].sort((a,b) => a.id.localeCompare(b.id)).forEach(item => {
+                const node = document.createElement('div');
+                node.className = 'node';
+                node.innerText = item.id;
+                node.onclick = (e) => {
+                    e.stopPropagation();
+                    showDetail(item.id);
+                    document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+                    node.classList.add('active');
+                };
+                content.appendChild(node);
+            });
+
+            container.appendChild(header);
+            container.appendChild(content);
+            treeDiv.appendChild(container);
+        });
+    }
+
+function showDetail(id) {
+    // Ricerca flessibile per ID
+    const item = database.find(d => d.id.toLowerCase() === id.toLowerCase());
+    if (!item) return;
+
+    // Pulizia e creazione link Related
+    let relatedLinks = "";
+    if (item.related) {
+        // Separiamo i comandi per virgola e puliamo
+        const relArray = item.related.split(",");
+        relArray.forEach(rel => {
+            let name = rel.trim();
+            if (name) {
+                // Sostituiamo i trattini bassi con spazi per la visualizzazione se necessario
+                let displayName = name.replace(/__/g, " ");
+                relatedLinks += `<span class="link" onclick="showDetail('${name}')">${displayName}</span>`;
+            }
+        });
+    }
+
+    document.getElementById('displayArea').innerHTML = `
+        <h1 style="color:#0078d4;">${item.id}</h1>
+        <div style="background:#f4f4f4; padding:10px; border-radius:5px; margin-bottom:20px;">
+            <strong>Gruppo:</strong> ${item.group}
+        </div>
+        <p><strong>Azione:</strong> ${item.action}</p>
+        <p><strong>Uso:</strong> ${item.use}</p>
+        ${item.example ? `<h3>Esempio:</h3><pre>${item.example}</pre>` : ''}
+        ${relatedLinks ? `<div class="related-box"><strong>Vedi anche:</strong><br>${relatedLinks}</div>` : ''}
+    `;
+    
+    if (window.innerWidth <= 600) toggleMenu();
+    document.getElementById('content').scrollTop = 0;
+}
+
+    function filterNodes() {
+        const q = document.getElementById('searchBar').value.toLowerCase();
+        const filtered = database.filter(i => 
+            i.id.toLowerCase().includes(q) || 
+            (i.group && i.group.toLowerCase().includes(q))
+        );
+        renderTree(filtered);
+        if (q.length > 0) expandAll(true);
+    }
+
+    function expandAll(open) {
+        document.querySelectorAll('.group-content').forEach(c => {
+            if (open) c.classList.add('show'); else c.classList.remove('show');
+        });
+        document.querySelectorAll('.sign').forEach(s => {
+            s.innerText = open ? '-' : '+';
+        });
+    }
+
+    // Avvio
+    window.onload = initApp;
+</script>
+</body>
+</html>
